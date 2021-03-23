@@ -1,4 +1,5 @@
 import requests
+from operator import itemgetter
 
 
 
@@ -32,10 +33,11 @@ def request_url(url):
     return request_dict
 
 
-def display_exchange_info(exchange_info):
+def display_exchange_info(exchange_info, rates):
     print(exchange_info.get('name'))
     print('Trust Score: ' + str(exchange_info.get('trust_score')))
-    print('24-Hour BTC Volume: ' + "{:.2f}".format(exchange_info.get('trade_volume_24h_btc')) + ' BTC')
+    print('Bitcoin 24h Volume: ' + "{:.2f} BTC".format(exchange_info.get('trade_volume_24h_btc')))
+    print('USD 24h Volume: ' + "${:,.2f}".format(exchange_info.get('trade_volume_24h_btc') * rates.get('usd').get('value')))
     print('URL: ' + str(exchange_info.get('url')))
     print()
 
@@ -58,6 +60,11 @@ def get_exchange_tickers(exchange):
     return base_currencies, target_currencies
 
 
+#Return BTC to fiat exchange rates
+def exchange_rates_api():
+    url = 'https://api.coingecko.com/api/v3/exchange_rates'
+    data = request_url(url)
+    return data
 
 
 #Bot class - Waits until conditions are met to initiate trade,
@@ -72,6 +79,7 @@ class TradingBot:
     current_status = ['standby', 'trading', 'intervention', 'offline', 'error']
 
     exchange = 'Coinbase'
+    #API Keys to interact with exchange
     keys = {}
     #Target market to trade against
     reserve_asset = 'BTC'
@@ -104,6 +112,9 @@ class TradingBot:
     last_sale_profit = 0
     last_sale_date = ''
 
+
+    #Trading Bot Performance
+    #Statistics to compare and measure up to different bot types
     #Total trades completed(buying and selling) and total profit made since beginning
     total_trades = 0
     total_profit = 0
@@ -134,6 +145,35 @@ class TradingBot:
 
 
 
+#Customizable coins/markets API call
+def coins_markets_api(vs_currency, category='', order='market_cap_desc', per_page='250', page='1', sparkline='false', price_change_percentage='24h'):
+    #category = 'decentralized_finance_defi'
+    price_change_percentage = '1h%2C24h%2C7d%2C14d%2C30d%2C200d%2C1y'
+
+    url = ('https://api.coingecko.com/api/v3/coins/markets?vs_currency=' + vs_currency +
+          '&category=' + category +
+          '&order=' + order +
+          '&per_page=' + per_page +
+          '&page=' + page +
+          '&sparkline=' + sparkline +
+          '&price_change_percentage=' + price_change_percentage)
+
+    data = request_url(url)
+    return data
+
+#Take in sub list of cryptos to sort and return
+def crypto_filter(cryptos, sort, reverse, price_filter):
+    new_list = []
+    #Iterate through list and remove null results to sort
+    for item in cryptos:
+        if price_filter < 0:
+            if item.get(sort) < price_filter:
+                new_list.append(item)
+        else:
+            if item.get(sort) > price_filter:
+                new_list.append(item)
+    sorted_cryptos = sorted(new_list, key=itemgetter(sort), reverse=reverse)
+    return sorted_cryptos
 
 
 
@@ -143,25 +183,84 @@ class TradingBot:
 def main():
     # Define exchange to operate on from exchanges_api id
     exchanges = ['gdax', 'binance_us', 'bittrex']
-    blacklist = ['USDT', 'BUSD', 'USDC', 'WBTC', 'DAI', 'UST', 'BCH', 'CUSD']
-
-    vs_currency = 'BTC'
     exchange_id = exchanges[2]
-    base_currencies, target_currencies = get_exchange_tickers(exchange_id)
+
+    vs_currency = 'USD'
+    cryptos = coins_markets_api(vs_currency.lower())
+
+    stablecoins = ['USDT', 'USDC', 'BUSD', 'DAI', 'UST', 'PAX', 'HUSD', 'TUSD', 'SUSD', 'USDN', 'VAI', 'GUSD', 'FRAX', 'USDP', 'ESD','USDX', 'KRT', 'MUSD',]
+    blacklist = ['BCH',]
+    watchlist = []
+
+    btc_rates = exchange_rates_api().get('rates')
+    btc_usd = btc_rates.get('usd').get('value')
 
 
-    exchange_info = exchanges_id_api(exchange_id)
-    display_exchange_info(exchange_info)
+
+    #Loop for each exchange
+    for id in exchanges:
+        #Create base vs target lists from exchange api
+        base_currencies, target_currencies = get_exchange_tickers(id)
+
+        # Update base_currencies by removing blacklist
+        cropped_list = []
+        for crypto in base_currencies:
+            if (crypto not in stablecoins) and (crypto not in stablecoins) and (crypto not in vs_currency):
+                cropped_list.append(crypto)
+        base_currencies = cropped_list
+
+
+        #Retrieve and display exchange info, volume, etc.
+        exchange_info = exchanges_id_api(id)
+        display_exchange_info(exchange_info, btc_rates)
+
+        print('Currently trading with: ' + vs_currency)
+        print()
+
+        print('Target Currencies available on: ' + exchange_info.get('name'))
+        print(target_currencies)
+        #Print base and target currencies for current exchange
+        print('Base Currencies available on: ' + exchange_info.get('name'))
+        #print(base_currencies)
+        print()
+
+        #Create new filtered and sorted crypto list, removing null values
+        timeframes = ['1h', '24h', '7d', '14d', '30d']
+        timeframe = timeframes[1]
+
+        # Sort and filter out list by percentage filters
+        price_sorter = 'price_change_percentage_' + timeframe + '_in_currency'
+        #If price_filter is negative, will check for lower values (bigger dumps)
+        #If price_filter is positive, will check for higher values (bigger pumps)
+        price_filter = -5
+        filtered_cryptos = crypto_filter(cryptos, price_sorter, False, price_filter)
 
 
 
-    #Print base and target currencies for current exchange
-    print('Base Currencies available on: ' + exchange_info.get('name'))
-    print(base_currencies)
-    print('Target Currencies available on: ' + exchange_info.get('name'))
-    print(target_currencies)
+        #Iterate filtered list and display price info
+        for crypto in filtered_cryptos:
+            symbol = crypto.get('symbol').upper()
+            price = crypto.get('current_price')
+            price_change = crypto.get(price_sorter)
+            if symbol in base_currencies:
+                print(crypto.get('name') + " ({}) ".format(symbol) + "${:.2f}".format(price))
+                #Find price before price change
+                print('Price after correction:' + " ${:.2f}".format(price + (price*abs(price_change)/100)))
+                print('Change ' + timeframe + " {:.2f}%".format(price_change))
+                print()
 
-    #display_data(exchanges_api('25'))
+
+
+        input('Enter to continue...')
+        print('\n')
+
+
+
+
+
+
+
+    #display_data(exchanges_api('25'))      #Print top 25 exchanges
 
 
 if __name__ == '__main__':
@@ -170,6 +269,13 @@ if __name__ == '__main__':
 
 
 
+
+
+#Compile list of coins to trade for based on exchange
+#Wait for certain dip to occur (sleep)
+#Execute buy order, save info (price, date, etc.)
+#Wait for opportunity to sale (profits made, etc.)
+#Execute sell order, update bot performance
 
 
 #Compile list of error codes
