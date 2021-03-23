@@ -1,6 +1,6 @@
 # cryptotrader-generic
-# Generic Trading Bot
-# Built using Python, obtains information from CoinGecko API
+- Cryptocurrency Trading Bot
+- Built using Python, obtains information from CoinGecko API
 
 # Features
 - Retrieves exchange info from CoinGecko API
