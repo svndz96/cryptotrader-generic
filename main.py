@@ -1,5 +1,6 @@
 import requests
 from operator import itemgetter
+from url_functions import *
 
 
 
@@ -161,21 +162,23 @@ def coins_markets_api(vs_currency, category='', order='market_cap_desc', per_pag
     data = request_url(url)
     return data
 
-#Take in sub list of cryptos to sort and return
-def crypto_filter(cryptos, sort, reverse, price_filter):
-    new_list = []
+#Take in sub list of cryptos and filter out by values
+def crypto_filter(cryptos, timeframe, price_filter):
+    filtered_list = []
     #Iterate through list and remove null results to sort
     for item in cryptos:
         if price_filter < 0:
-            if item.get(sort) < price_filter:
-                new_list.append(item)
+            if item.get(timeframe) < price_filter:
+                filtered_list.append(item)
         else:
-            if item.get(sort) > price_filter:
-                new_list.append(item)
-    sorted_cryptos = sorted(new_list, key=itemgetter(sort), reverse=reverse)
+            if item.get(timeframe) > price_filter:
+                filtered_list.append(item)
+    return filtered_list
+
+#Take in sub list of cryptos to sort and return
+def crypto_sorter(cryptos, sort, reverse):
+    sorted_cryptos = sorted(cryptos, key=itemgetter(sort), reverse=reverse)
     return sorted_cryptos
-
-
 
 
 #Waiting period
@@ -189,11 +192,13 @@ def main():
     cryptos = coins_markets_api(vs_currency.lower())
 
     stablecoins = ['USDT', 'USDC', 'BUSD', 'DAI', 'UST', 'PAX', 'HUSD', 'TUSD', 'SUSD', 'USDN', 'VAI', 'GUSD', 'FRAX', 'USDP', 'ESD','USDX', 'KRT', 'MUSD',]
-    blacklist = ['BCH',]
+    blacklist = ['WBTC', 'WETH', 'BCH',]
     watchlist = []
 
     btc_rates = exchange_rates_api().get('rates')
     btc_usd = btc_rates.get('usd').get('value')
+
+    investment = 200
 
 
 
@@ -205,7 +210,7 @@ def main():
         # Update base_currencies by removing blacklist
         cropped_list = []
         for crypto in base_currencies:
-            if (crypto not in stablecoins) and (crypto not in stablecoins) and (crypto not in vs_currency):
+            if (crypto not in stablecoins) and (crypto not in blacklist) and (crypto not in vs_currency):
                 cropped_list.append(crypto)
         base_currencies = cropped_list
 
@@ -215,6 +220,7 @@ def main():
         display_exchange_info(exchange_info, btc_rates)
 
         print('Currently trading with: ' + vs_currency)
+        print('Investment amount: ' + "{:,.2f}".format(investment))
         print()
 
         print('Target Currencies available on: ' + exchange_info.get('name'))
@@ -233,20 +239,25 @@ def main():
         #If price_filter is negative, will check for lower values (bigger dumps)
         #If price_filter is positive, will check for higher values (bigger pumps)
         price_filter = -5
-        filtered_cryptos = crypto_filter(cryptos, price_sorter, False, price_filter)
-
+        filtered_cryptos = crypto_filter(cryptos, price_sorter, price_filter)
+        sort_method = 'market_cap_rank'
+        sorted_cryptos = crypto_sorter(filtered_cryptos, sort_method, True)
 
 
         #Iterate filtered list and display price info
-        for crypto in filtered_cryptos:
+        for crypto in sorted_cryptos:
             symbol = crypto.get('symbol').upper()
             price = crypto.get('current_price')
             price_change = crypto.get(price_sorter)
             if symbol in base_currencies:
-                print(crypto.get('name') + " ({}) ".format(symbol) + "${:.2f}".format(price))
+                print("{}. ".format(crypto.get('market_cap_rank')) + crypto.get('name') + " ({}) ".format(symbol))
+                print('Market Cap: ' + "${:,.2f}".format(crypto.get('market_cap')))
+                print('Current Price: ' + "${:.2f}, ".format(price) + timeframe + " {:.2f}%".format(price_change))
                 #Find price before price change
                 print('Price after correction:' + " ${:.2f}".format(price + (price*abs(price_change)/100)))
-                print('Change ' + timeframe + " {:.2f}%".format(price_change))
+                print('Profit:' + " ${:.2f}".format(investment*abs(price_change)/100))
+
+
                 print()
 
 
